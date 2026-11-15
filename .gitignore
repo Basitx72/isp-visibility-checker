@@ -1,0 +1,9 @@
+# Dependencies. Run "npm install" to get them.
+node_modules/
+
+# Your own scan results stay on your computer.
+sanitized-report.json
+previous-sanitized-report.json
+
+# macOS
+.DS_Store

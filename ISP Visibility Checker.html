@@ -1,0 +1,1335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>ISP Visibility Checker</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='12' fill='%2314161a'/%3E%3Cpath d='M9 24s5.6-9.5 15-9.5S39 24 39 24s-5.6 9.5-15 9.5S9 24 9 24z' fill='none' stroke='white' stroke-width='3' stroke-linejoin='round'/%3E%3Ccircle cx='24' cy='24' r='4' fill='white'/%3E%3C/svg%3E">
+<style>
+:root {
+  /* Design plan
+     Two questions, two answers. Left: what your provider sees. Right: what your router answers to.
+     Each answer is one big word or number, one sentence and one button. Every detail folds away under it.
+     Type does the work, in the computer's own interface face, so a local tool looks like part of the
+     machine and asks no font server for anything. No cards: space and hairlines only.
+     The one mark is the eye. It is struck out when you are hidden and open when you are seen. */
+  --bg: #f9fafb;
+  --ink: #14161a;
+  --muted: #626a77;
+  --line: #e2e5e9;
+  --soft: #eef0f3;
+  --ok: #0a7a52;
+  --warn: #9a5800;
+  --bad: #c1322a;
+  --ask: #3257d3;
+  --ok-bg: #e2f3eb;
+  --warn-bg: #fbefd6;
+  --bad-bg: #fbe5e3;
+  --btn: #14161a;
+  --btn-ink: #ffffff;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101216;
+    --ink: #eceef2;
+    --muted: #9aa1ad;
+    --line: #282b32;
+    --soft: #1a1d23;
+    --ok: #4fd1a1;
+    --warn: #f0b24a;
+    --bad: #ff8a80;
+    --ask: #8ea6ff;
+    --ok-bg: #12302a;
+    --warn-bg: #3a2d12;
+    --bad-bg: #3c1c1b;
+    --btn: #eceef2;
+    --btn-ink: #101216;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101216;
+  --ink: #eceef2;
+  --muted: #9aa1ad;
+  --line: #282b32;
+  --soft: #1a1d23;
+  --ok: #4fd1a1;
+  --warn: #f0b24a;
+  --bad: #ff8a80;
+  --ask: #8ea6ff;
+  --ok-bg: #12302a;
+  --warn-bg: #3a2d12;
+  --bad-bg: #3c1c1b;
+  --btn: #eceef2;
+  --btn-ink: #101216;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, p, ul, ol, dl { margin: 0; }
+[hidden] { display: none !important; }
+
+.app {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 28px 32px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+}
+
+/* Top bar */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.logo {
+  flex: none; width: 34px; height: 34px; border-radius: 10px;
+  display: grid; place-items: center;
+  background: var(--ink); color: var(--bg);
+}
+.brand h1 { font-size: 16px; font-weight: 650; line-height: 1.25; letter-spacing: -0.01em; }
+.brand p { font-size: 13.5px; line-height: 1.35; color: var(--muted); }
+
+.btn {
+  font: inherit; font-size: 14px; font-weight: 600; line-height: 1;
+  padding: 10px 16px; border-radius: 999px;
+  border: 1px solid var(--line); background: transparent; color: var(--ink);
+  cursor: pointer; white-space: nowrap;
+}
+.btn:hover { background: var(--soft); }
+.btn.primary { background: var(--btn); color: var(--btn-ink); border-color: var(--btn); }
+.btn.primary:hover { background: var(--btn); opacity: 0.86; }
+.btn:disabled { opacity: 0.55; cursor: progress; }
+.btn:focus-visible, .row > summary:focus-visible, .about summary:focus-visible, select:focus-visible {
+  outline: 2px solid var(--ask); outline-offset: 3px;
+}
+
+/* Two sides */
+.sides { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 48px 72px; align-items: start; }
+.side { display: flex; flex-direction: column; gap: 26px; min-width: 0; }
+
+/* The answer */
+.hero { --state: var(--ink); display: flex; flex-direction: column; gap: 10px; min-height: 292px; }
+.hero[data-state="protected"] { --state: var(--ok); }
+.hero[data-state="leaking"] { --state: var(--warn); }
+.hero[data-state="open"] { --state: var(--bad); }
+.hero-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 38px; }
+.side-name { font-size: 15px; font-weight: 600; color: var(--muted); }
+.status { display: flex; align-items: center; gap: 14px; margin-top: 8px; color: var(--state); }
+.word { font-size: clamp(44px, 5.4vw, 64px); font-weight: 700; line-height: 1.02; letter-spacing: -0.035em; font-variant-numeric: tabular-nums; }
+.word small { font-size: 0.34em; font-weight: 600; letter-spacing: 0; color: var(--muted); margin-left: 5px; }
+.say { font-size: 19px; font-weight: 600; line-height: 1.35; letter-spacing: -0.01em; max-width: 30ch; text-wrap: balance; }
+.sub { font-size: 14.5px; color: var(--muted); max-width: 54ch; }
+.sub:empty { display: none; }
+
+.eye { flex: none; width: 54px; height: 54px; }
+.eye .cut { stroke: var(--bg); stroke-width: 9; }
+.eye .pupil, .eye .cut, .eye .slash { opacity: 0; }
+.hero[data-state="protected"] .eye .cut, .hero[data-state="protected"] .eye .slash { opacity: 1; }
+.hero[data-state="leaking"] .eye .pupil, .hero[data-state="open"] .eye .pupil { opacity: 1; }
+
+.note { font-size: 14px; padding: 10px 13px; border-radius: 10px; background: var(--soft); max-width: 56ch; }
+.note[data-tone="warn"] { background: var(--warn-bg); }
+.note[data-tone="ok"] { background: var(--ok-bg); }
+.start { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 4px; }
+.cmd {
+  flex: 1 1 260px; min-width: 0; overflow-x: auto; white-space: nowrap;
+  font-family: var(--mono); font-size: 13px;
+  padding: 11px 13px; border-radius: 10px; background: var(--soft);
+}
+
+/* Result rows */
+.rows { border-top: 1px solid var(--line); }
+.row { border-bottom: 1px solid var(--line); }
+.row > summary {
+  list-style: none;
+  display: grid; grid-template-columns: 22px minmax(0, 1fr) auto 12px; gap: 3px 12px; align-items: center;
+  margin: 0 -10px; padding: 15px 10px;
+  border-radius: 8px; cursor: pointer;
+}
+.row > summary::-webkit-details-marker { display: none; }
+.row > summary:hover { background: var(--soft); }
+.name { font-weight: 600; }
+.val { color: var(--muted); text-align: right; }
+.row[data-tone="bad"] .val { color: var(--bad); font-weight: 600; }
+.row[data-tone="warn"] .val { color: var(--warn); font-weight: 600; }
+.do { grid-column: 2 / -1; font-size: 14px; color: var(--muted); max-width: 60ch; }
+.chev {
+  width: 9px; height: 9px; justify-self: center;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: translateY(-2px) rotate(45deg);
+}
+.row[open] > summary .chev { transform: translateY(2px) rotate(225deg); }
+
+.ico { position: relative; width: 22px; height: 22px; border-radius: 50%; background: var(--line); }
+.row[data-tone="ok"] .ico { background: var(--ok); }
+.row[data-tone="bad"] .ico { background: var(--bad); }
+.row[data-tone="warn"] .ico { background: var(--warn); }
+.row[data-tone="ask"] .ico { background: var(--ask); }
+.row[data-tone="info"] .ico { background: var(--muted); }
+.row[data-tone="ok"] .ico::after, .row[data-tone="bad"] .ico::after, .row[data-tone="warn"] .ico::after,
+.row[data-tone="ask"] .ico::after, .row[data-tone="info"] .ico::after {
+  content: ""; position: absolute; inset: 4px; background: var(--bg);
+  -webkit-mask: var(--glyph) center / contain no-repeat;
+  mask: var(--glyph) center / contain no-repeat;
+}
+.row[data-tone="ok"] .ico { --glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.2 8.6l3.1 3.1 6.5-7.2' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.row[data-tone="bad"] .ico, .row[data-tone="warn"] .ico { --glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 3v6.2' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round'/%3E%3Ccircle cx='8' cy='12.6' r='1.4'/%3E%3C/svg%3E"); }
+.row[data-tone="ask"] .ico { --glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M5.6 6.1a2.5 2.5 0 1 1 3.7 2.2c-.8.5-1.3 1-1.3 1.9' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='8' cy='13' r='1.3'/%3E%3C/svg%3E"); }
+.row[data-tone="info"] .ico { --glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='3.6' r='1.4'/%3E%3Cpath d='M8 7.2v6' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E"); }
+
+/* Folded detail */
+.more { display: grid; gap: 10px; padding: 0 0 18px 34px; font-size: 14.5px; }
+.q { color: var(--muted); }
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 5px 16px; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+.mono { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.who { color: var(--muted); }
+.raw { list-style: none; padding: 0; display: grid; gap: 2px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.two { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 28px; }
+.two h3 { font-size: 14px; font-weight: 600; margin-bottom: 5px; }
+.two ul { list-style: none; padding: 0; display: grid; gap: 6px; }
+.two li[data-leak="1"] { color: var(--bad); font-weight: 600; }
+.two li.empty { color: var(--muted); }
+.mini { list-style: none; padding: 0; display: grid; gap: 6px; }
+.mini li { display: flex; justify-content: space-between; gap: 16px; }
+.mini li span + span { color: var(--muted); text-align: right; }
+.field { display: grid; gap: 6px; justify-items: start; font-weight: 600; }
+.field select {
+  font: inherit; font-weight: 400; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-height: 38px;
+}
+.field .q { font-weight: 400; font-size: 13.5px; }
+.fine { font-size: 13px; color: var(--muted); max-width: 62ch; }
+
+/* About */
+.about { border-top: 1px solid var(--line); padding-top: 18px; font-size: 13.5px; color: var(--muted); }
+.about summary { cursor: pointer; width: max-content; max-width: 100%; border-radius: 6px; font-weight: 600; }
+.about .inside { display: grid; gap: 10px; padding-top: 12px; max-width: 78ch; }
+.about b { color: var(--ink); font-weight: 600; }
+
+@media (max-width: 880px) {
+  .app { padding: 22px 20px 48px; gap: 36px; }
+  .sides { grid-template-columns: minmax(0, 1fr); gap: 56px; }
+  .hero { min-height: 0; }
+}
+@media (max-width: 480px) {
+  .brand p { display: none; }
+  .row > summary { grid-template-columns: 22px minmax(0, 1fr) 12px; }
+  .val { grid-column: 2; grid-row: 2; text-align: left; }
+  .two { grid-template-columns: minmax(0, 1fr); }
+  .eye { width: 44px; height: 44px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root { interpolate-size: allow-keywords; }
+  .chev { transition: transform 0.18s ease; }
+  .eye .pupil, .eye .cut, .eye .slash { transition: opacity 0.25s ease; }
+  .hero[data-state="running"] .eye { animation: blink 1.3s ease-in-out infinite; }
+  .status.land { animation: land 0.35s ease-out; }
+  .row::details-content { block-size: 0; overflow: clip; transition: block-size 0.22s ease, content-visibility 0.22s allow-discrete; }
+  .row[open]::details-content { block-size: auto; }
+  @keyframes blink { 50% { opacity: 0.35; } }
+  @keyframes land { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 24s7.5-13 20-13 20 13 20 13-7.5 13-20 13S4 24 4 24z"/><circle cx="24" cy="24" r="5" fill="currentColor" stroke="none"/></svg>
+      </span>
+      <div>
+        <h1>ISP Visibility Checker</h1>
+        <p>What your internet provider can see, and what your router answers to.</p>
+      </div>
+    </div>
+    <button class="btn" id="copy" type="button">Copy report</button>
+  </header>
+
+  <main class="sides">
+
+    <section class="side" id="internet" aria-labelledby="net-name">
+      <div class="hero" id="verdict" data-state="running" aria-live="polite">
+        <div class="hero-top">
+          <h2 class="side-name" id="net-name">On the internet</h2>
+          <button class="btn" id="run" type="button">Check again</button>
+        </div>
+        <div class="status" id="v-status">
+          <svg class="eye" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 24s7.5-13 20-13 20 13 20 13-7.5 13-20 13S4 24 4 24z"/>
+            <circle class="pupil" cx="24" cy="24" r="6" fill="currentColor" stroke="none"/>
+            <path class="cut" d="M9 40L39 8"/>
+            <path class="slash" d="M9 40L39 8"/>
+          </svg>
+          <p class="word" id="v-title">Checking</p>
+        </div>
+        <p class="say" id="v-text">Running four tests from this browser.</p>
+        <p class="sub" id="v-sub">It takes about five seconds.</p>
+      </div>
+
+      <div class="rows">
+        <details class="row" id="ip-row" data-tone="">
+          <summary><span class="ico" aria-hidden="true"></span><span class="name" id="ip-name">Address websites see</span><span class="val" id="ip-pill">Checking</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="more">
+            <p class="q">Who the sites you open think you are.</p>
+            <dl class="facts" id="ip-facts"></dl>
+            <p id="ip-means"></p>
+          </div>
+        </details>
+        <details class="row" id="dns-row" data-tone="">
+          <summary><span class="ico" aria-hidden="true"></span><span class="name" id="dns-name">Site name lookups (DNS)</span><span class="val" id="dns-pill">Checking</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="more">
+            <p class="q">Who turns site names into addresses for you. Whoever does it can list the sites you open.</p>
+            <dl class="facts" id="dns-facts"></dl>
+            <p id="dns-means"></p>
+          </div>
+        </details>
+        <details class="row" id="v6-row" data-tone="">
+          <summary><span class="ico" aria-hidden="true"></span><span class="name" id="v6-name">Second route (IPv6)</span><span class="val" id="v6-pill">Checking</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="more">
+            <p class="q">A newer kind of internet address. If it goes around the VPN, sites see your real one.</p>
+            <dl class="facts" id="v6-facts"></dl>
+            <p id="v6-means"></p>
+          </div>
+        </details>
+        <details class="row" id="rtc-row" data-tone="">
+          <summary><span class="ico" aria-hidden="true"></span><span class="name" id="rtc-name">Browser calls (WebRTC)</span><span class="val" id="rtc-pill">Checking</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="more">
+            <p class="q">Calls and video chats in the browser. They can reveal your address even behind a VPN.</p>
+            <dl class="facts" id="rtc-facts"></dl>
+            <p id="rtc-means"></p>
+          </div>
+        </details>
+        <details class="row" id="sees-row" data-tone="info">
+          <summary><span class="ico" aria-hidden="true"></span><span class="name">What your provider can and can't see</span><span class="val"></span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="more two">
+            <div><h3>Can see</h3><ul id="can"><li class="empty">Waiting for the check to finish.</li></ul></div>
+            <div><h3>Can't see</h3><ul id="cannot"><li class="empty">Waiting for the check to finish.</li></ul></div>
+          </div>
+        </details>
+      </div>
+      <p class="fine" id="stamp"></p>
+    </section>
+
+    <section class="side" id="router" aria-labelledby="r-name">
+      <div class="hero" id="r-hero" data-state="" aria-live="polite">
+        <div class="hero-top">
+          <h2 class="side-name" id="r-name">At home</h2>
+          <button class="btn primary" id="r-scan" type="button" hidden>Scan router</button>
+        </div>
+        <div class="status" id="r-status">
+          <p class="word" id="r-title">Not connected</p>
+        </div>
+        <p class="say" id="r-text">Start the app to scan your router.</p>
+        <p class="sub" id="r-sub">The scan is done by scanner.js. It looks only at your own router, from inside your network.</p>
+        <div class="start" id="r-start">
+          <code class="cmd" id="r-cmd">cd ~/Desktop/isp-visibility-checker &amp;&amp; node app.js</code>
+          <button class="btn" id="r-copy" type="button">Copy command</button>
+        </div>
+        <p class="note" id="r-hint" data-tone="warn" hidden>Your VPN is on. Turn it off before you scan, or the scan stops or checks the wrong thing.</p>
+        <p class="note" id="r-msg" hidden></p>
+      </div>
+
+      <div class="rows" id="r-rows" hidden></div>
+      <p class="fine" id="r-foot" hidden></p>
+    </section>
+
+  </main>
+
+  <footer class="about">
+    <details>
+      <summary>About these checks</summary>
+      <div class="inside">
+        <p><b>Internet tests.</b> They run in this browser, so they show this browser's traffic at this moment. They can't test a VPN's kill switch or other apps. Whoever runs your Wi-Fi sees the same things as your provider.</p>
+        <p><b>Router scan.</b> It is done by scanner.js and needs the app started with node app.js. It looks only at your own router, from inside your network, with your VPN off. It never tests what the internet can reach, and it saves only sanitized-report.json and previous-sanitized-report.json.</p>
+        <p><b>Services the internet tests ask.</b> ipquery.io, ipwho.is, geojs.io, Cloudflare, ipify.org, icanhazip.com, ip-api.com and ipleak.net, plus call servers at Cloudflare, Twilio, Google and Sipnet. Each one sees what any website would see. Nothing from these tests is saved.</p>
+      </div>
+    </details>
+  </footer>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const uniq = (a) => [...new Set(a)];
+  const TIME = { http: 7000, dns: 7000, v6: 5000, rtc: 4500, lookup: 6000 };
+
+  /* ---------- addresses ---------- */
+  const V4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+  const isV4 = (s) => typeof s === 'string' && V4.test(s);
+  const isV6 = (s) => typeof s === 'string' && s.includes(':') && s.length <= 45 && /^[0-9a-f:.]+$/i.test(s);
+  const validIp = (s) => isV4(s) || isV6(s);
+  function isPrivate(ip) {
+    if (isV4(ip)) {
+      const [a, b] = ip.split('.').map(Number);
+      return a === 0 || a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127);
+    }
+    const s = String(ip).toLowerCase();
+    return s === '::1' || /^fe[89ab]/.test(s) || /^f[cd]/.test(s);
+  }
+  const rand = (n) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36]).join('');
+
+  /* ---------- network ---------- */
+  async function get(url, timeout, asText) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeout);
+    try {
+      const r = await fetch(url, { signal: ctl.signal, cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return asText ? await r.text() : await r.json();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  const why = (e) => (e && e.name === 'AbortError') ? 'no answer in time' : (e && /^HTTP \d+/.test(e.message || '')) ? 'refused (' + e.message + ')' : 'could not connect';
+
+  /* ---------- lookup services ---------- */
+  const asn = (v) => { if (v == null || v === '') return null; const m = /(\d+)/.exec(String(v)); return m ? 'AS' + m[1] : null; };
+  const parse = {
+    ipquery: (j) => ({ ip: j.ip, org: (j.isp && (j.isp.org || j.isp.isp)) || null, asn: asn(j.isp && j.isp.asn), country: j.location && j.location.country, cc: j.location && j.location.country_code, city: j.location && j.location.city, tz: j.location && j.location.timezone, risk: j.risk || null }),
+    ipwho: (j) => (!j || j.success === false) ? null : ({ ip: j.ip, org: (j.connection && (j.connection.isp || j.connection.org)) || null, asn: asn(j.connection && j.connection.asn), country: j.country, cc: j.country_code, city: j.city, tz: j.timezone && j.timezone.id }),
+    geojs: (j) => ({ ip: j.ip, org: j.organization_name || null, asn: asn(j.asn), country: j.country, cc: j.country_code, city: j.city, tz: j.timezone }),
+    cloudflare: (t) => { const o = {}; String(t).split('\n').forEach((l) => { const i = l.indexOf('='); if (i > 0) o[l.slice(0, i)] = l.slice(i + 1).trim(); }); return { ip: o.ip, cc: o.loc }; },
+    ipify: (j) => ({ ip: j.ip }),
+  };
+  const SOURCES = [
+    { name: 'ipquery.io', url: 'https://api.ipquery.io/?format=json', parse: parse.ipquery },
+    { name: 'ipwho.is', url: 'https://ipwho.is/', parse: parse.ipwho },
+    { name: 'geojs.io', url: 'https://get.geojs.io/v1/ip/geo.json', parse: parse.geojs },
+    { name: 'Cloudflare', url: 'https://www.cloudflare.com/cdn-cgi/trace', parse: parse.cloudflare, text: true },
+    { name: 'ipify.org', url: 'https://api.ipify.org?format=json', parse: parse.ipify },
+  ];
+  const STUN = [
+    { label: 'Cloudflare', host: 'stun.cloudflare.com:3478' },
+    { label: 'Twilio', host: 'global.stun.twilio.com:3478' },
+    { label: 'Google', host: 'stun.l.google.com:19302' },
+    { label: 'Sipnet, Russia', host: 'stun.sipnet.ru:3478' },
+  ];
+  const HOSTING = /hosting|hoster|\bhost\b|server|cloud|\bvps\b|\bvds\b|data ?cent|colocation|netcup|anexia|hetzner|\bovh\b|digital ?ocean|linode|akamai|vultr|contabo|\bm247\b|datacamp|leaseweb|scaleway|\baeza\b|timeweb|selectel|amazon|\baws\b|google|microsoft|azure|oracle|alibaba|tencent|choopa|constant company|g-?core|cdn77|datapacket|hostinger|ionos|strato|worldstream|equinix|zenlayer|psychz|quadranet|colocrossing|frantech|hostwinds|racknerd|clouvider|kamatera|upcloud|firstvds|ruvds|beget|jsc iot|packethub|fastly/i;
+  const PUBLIC_DNS = /google|cloudflare|quad9|opendns|cisco|adguard|nextdns|control ?d|cleanbrowsing|yandex|comodo|neustar|dns\.sb/i;
+
+  let known = new Map();
+  let pending = new Map();
+
+  function remember(p) {
+    if (!p || !validIp(p.ip)) return;
+    const cur = known.get(p.ip) || { ip: p.ip };
+    ['org', 'asn', 'country', 'cc', 'city', 'tz'].forEach((k) => { if (!cur[k] && p[k]) cur[k] = p[k]; });
+    if (p.risk && !cur.risk) cur.risk = p.risk;
+    known.set(p.ip, cur);
+  }
+  function classify(i) {
+    if (i.risk) return (i.risk.is_datacenter || i.risk.is_vpn || i.risk.is_proxy || i.risk.is_tor) ? 'vpn' : 'isp';
+    if (i.org) return HOSTING.test(i.org) ? 'vpn' : 'isp';
+    return 'unknown';
+  }
+  function describe(ip) {
+    if (pending.has(ip)) return pending.get(ip);
+    const job = (async () => {
+      if (!(known.get(ip) || {}).risk) {
+        try { remember(Object.assign(parse.ipquery(await get('https://api.ipquery.io/' + ip, TIME.lookup)), { ip })); } catch (e) { /* try the next service */ }
+      }
+      if (!(known.get(ip) || {}).org) {
+        try { const p = parse.ipwho(await get('https://ipwho.is/' + ip, TIME.lookup)); if (p) remember(Object.assign(p, { ip })); } catch (e) { /* stays unknown */ }
+      }
+      const cur = known.get(ip) || { ip };
+      cur.kind = classify(cur);
+      known.set(ip, cur);
+      return cur;
+    })();
+    pending.set(ip, job);
+    return job;
+  }
+
+  /* ---------- the four tests ---------- */
+  async function testHttp() {
+    return Promise.all(SOURCES.map(async (s) => {
+      try {
+        const p = s.parse(await get(s.url, TIME.http, !!s.text));
+        if (!p || !validIp(p.ip)) throw new Error('bad answer');
+        remember(p);
+        return { name: s.name, ok: true, ip: p.ip };
+      } catch (e) {
+        return { name: s.name, ok: false, err: why(e) };
+      }
+    }));
+  }
+
+  async function testDns() {
+    const jobs = [];
+    for (let i = 0; i < 3; i++) {
+      jobs.push(get('https://' + rand(32) + '.edns.ip-api.com/json', TIME.dns)
+        .then((j) => ({ name: 'ip-api.com', ips: (j && j.dns && j.dns.ip) ? [j.dns.ip] : [], ecs: (j && j.edns && j.edns.ip) || null }))
+        .catch((e) => ({ name: 'ip-api.com', err: why(e), ips: [] })));
+    }
+    for (let i = 0; i < 2; i++) {
+      jobs.push(get('https://' + rand(40) + '.ipleak.net/dnsdetection/', TIME.dns)
+        .then((j) => ({ name: 'ipleak.net', ips: Object.keys((j && j.ip) || {}) }))
+        .catch((e) => ({ name: 'ipleak.net', err: why(e), ips: [] })));
+    }
+    const raw = await Promise.all(jobs);
+    return {
+      ok: raw.some((r) => !r.err),
+      resolvers: uniq(raw.flatMap((r) => r.ips).filter(validIp)),
+      ecs: uniq(raw.map((r) => r.ecs).filter(Boolean)),
+      raw,
+    };
+  }
+
+  async function testV6() {
+    const tries = [
+      { name: 'api6.ipify.org', run: () => get('https://api6.ipify.org?format=json', TIME.v6).then((j) => j.ip) },
+      { name: 'ipv6.icanhazip.com', run: () => get('https://ipv6.icanhazip.com/', TIME.v6, true).then((t) => String(t).trim()) },
+    ];
+    const raw = await Promise.all(tries.map((t) => t.run().then((ip) => ({ name: t.name, ip: isV6(ip) ? ip : null })).catch((e) => ({ name: t.name, ip: null, err: why(e) }))));
+    return { ip: (raw.find((r) => r.ip) || {}).ip || null, raw };
+  }
+
+  function gatherOne(s) {
+    return new Promise((resolve) => {
+      const out = { label: s.label, host: s.host, ips: [], local: false, mdns: false };
+      let pc;
+      let finished = false;
+      let timer = null;
+      const done = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        try { pc.close(); } catch (e) { /* already closed */ }
+        resolve(out);
+      };
+      try { pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:' + s.host }] }); } catch (e) { out.err = 'blocked'; resolve(out); return; }
+      timer = setTimeout(done, TIME.rtc);
+      pc.onicecandidate = (ev) => {
+        if (!ev.candidate) { done(); return; }
+        const parts = String(ev.candidate.candidate || '').split(' ');
+        const addr = parts[4];
+        const type = parts[7];
+        if (!addr) return;
+        if (/\.local$/i.test(addr)) { out.mdns = true; return; }
+        if (!validIp(addr)) return;
+        if (isPrivate(addr)) { out.local = true; return; }
+        if (!out.ips.includes(addr)) out.ips.push(addr);
+        if (type !== 'host') { clearTimeout(timer); timer = setTimeout(done, 500); }
+      };
+      try {
+        pc.createDataChannel('probe');
+        pc.createOffer().then((o) => pc.setLocalDescription(o)).catch(() => { out.err = 'blocked'; done(); });
+      } catch (e) { out.err = 'blocked'; done(); }
+    });
+  }
+  async function testRtc() {
+    if (typeof RTCPeerConnection === 'undefined') return { supported: false, results: [] };
+    return { supported: true, results: await Promise.all(STUN.map(gatherOne)) };
+  }
+
+  /* ---------- turn raw results into a verdict ---------- */
+  function analyse(d) {
+    const info = (ip) => known.get(ip) || { ip, kind: 'unknown' };
+    const m = { at: new Date(), raw: d, leaks: [] };
+    m.main = uniq(d.http.filter((r) => r.ok).map((r) => r.ip)).map(info);
+    const base = m.main.some((i) => isV4(i.ip)) ? m.main.filter((i) => isV4(i.ip)) : m.main;
+    const kinds = new Set(base.map((i) => i.kind));
+    m.mode = !m.main.length ? 'offline' : (kinds.has('vpn') && kinds.has('isp')) ? 'mixed' : kinds.has('vpn') ? 'vpn' : kinds.has('isp') ? 'open' : 'unknown';
+    m.base = base;
+    m.exit = base.find((i) => i.kind === 'vpn') || null;
+    m.home = base.find((i) => i.kind === 'isp') || null;
+    m.first = m.exit || m.home || base[0] || null;
+    const vpnOn = m.mode === 'vpn' || m.mode === 'mixed';
+    const exitAsns = new Set(base.filter((i) => i.kind === 'vpn' && i.asn).map((i) => i.asn));
+    if (m.mode === 'mixed') m.leaks.push('mixed');
+
+    const resolvers = d.dns.resolvers.map(info).map((i) => Object.assign({}, i, {
+      role: (i.asn && exitAsns.has(i.asn)) ? 'vpn' : PUBLIC_DNS.test(i.org || '') ? 'public' : i.kind === 'isp' ? 'isp' : i.kind === 'vpn' ? 'server' : 'unknown',
+    }));
+    m.dns = { ok: d.dns.ok, resolvers, ecs: d.dns.ecs, leak: vpnOn && resolvers.some((r) => r.role === 'isp') };
+    if (m.dns.leak) m.leaks.push('dns');
+
+    const v6ip = d.v6.ip || (m.main.find((i) => isV6(i.ip)) || {}).ip || null;
+    m.v6 = { ip: v6ip, info: v6ip ? info(v6ip) : null };
+    m.v6.leak = vpnOn && !!v6ip && m.v6.info.kind === 'isp';
+    if (m.v6.leak) m.leaks.push('ipv6');
+
+    const seen = [];
+    d.rtc.results.forEach((r) => r.ips.forEach((ip) => seen.push({ label: r.label, ip, info: info(ip) })));
+    m.rtc = {
+      supported: d.rtc.supported,
+      seen,
+      mdns: d.rtc.results.some((r) => r.mdns),
+      local: d.rtc.results.some((r) => r.local),
+      leak: vpnOn && seen.some((s) => s.info.kind === 'isp'),
+    };
+    if (m.rtc.leak) m.leaks.push('webrtc');
+
+    m.state = m.mode === 'offline' ? 'offline' : m.mode === 'open' ? 'open' : m.mode === 'unknown' ? 'unknown' : m.leaks.length ? 'leaking' : 'protected';
+    return m;
+  }
+
+  /* ---------- wording ---------- */
+  const place = (i) => [i.city, i.country || i.cc].filter(Boolean).join(', ');
+  const owner = (i) => i.org ? (i.asn ? i.org + ' (' + i.asn + ')' : i.org) : (i.asn || 'Unknown network');
+  const brief = (i) => [i.org || 'an unknown network', i.country || i.cc].filter(Boolean).join(', ');
+  const tagged = (i) => ({ ip: i.ip, note: brief(i) });
+  function typeText(i) {
+    if (i.kind === 'vpn') return i.risk ? 'Hosting company or VPN, not a home internet provider' : 'Looks like a hosting company or VPN';
+    if (i.kind === 'isp') {
+      if (i.risk && i.risk.is_mobile) return 'Mobile network provider';
+      return i.risk ? 'Ordinary internet provider (home, office or mobile)' : 'Looks like an ordinary internet provider';
+    }
+    return 'Unknown';
+  }
+  function offsetOf(tz) {
+    try {
+      const now = new Date();
+      const v = {};
+      new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' })
+        .formatToParts(now).forEach((p) => { v[p.type] = p.value; });
+      return Math.round((Date.UTC(+v.year, +v.month - 1, +v.day, +v.hour % 24, +v.minute, +v.second) - now.getTime()) / 60000);
+    } catch (e) { return null; }
+  }
+  const utc = (min) => { const a = Math.abs(min); return 'UTC' + (min < 0 ? '-' : '+') + Math.floor(a / 60) + (a % 60 ? ':' + String(a % 60).padStart(2, '0') : ''); };
+  function clockNote(i) {
+    if (!i || !i.tz) return null;
+    const there = offsetOf(i.tz);
+    const here = -new Date().getTimezoneOffset();
+    if (there == null || Math.abs(there - here) < 30) return null;
+    return 'Your device clock is on ' + utc(here) + ', but this address is in a ' + utc(there) + ' zone. Websites can notice the gap.';
+  }
+  const list = (a) => a.length < 2 ? (a[0] || '') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
+
+  /* ---------- drawing ---------- */
+  /* One row per test. A row that found a problem opens by itself, so the fix is in view. */
+  function pill(id, tone, text) {
+    const row = $(id.replace('-pill', '-row'));
+    row.dataset.tone = tone || '';
+    row.open = tone === 'bad' || tone === 'warn';
+    $(id).textContent = text;
+  }
+  function facts(id, rows) {
+    const dl = $(id);
+    dl.replaceChildren();
+    rows.forEach(([k, v, mono]) => {
+      if (v == null || v === '' || (Array.isArray(v) && !v.length)) return;
+      dl.append(el('dt', '', k));
+      const dd = el('dd', mono ? 'mono' : '');
+      if (Array.isArray(v)) {
+        v.forEach((line) => {
+          if (typeof line === 'string') { dd.append(el('div', '', line)); return; }
+          const row = el('div');
+          row.append(el('span', 'mono', line.ip), document.createTextNode('  '), el('span', 'who', line.note));
+          dd.append(row);
+        });
+      } else {
+        dd.textContent = v;
+      }
+      dl.append(dd);
+    });
+    dl.hidden = !dl.childNodes.length;
+  }
+  /* Which service answered what. Kept out of the window and added to the copied report. */
+  const testLines = {};
+  function lines(id, items) { testLines[id] = items; }
+  function bullets(id, items, emptyText) {
+    const ul = $(id);
+    ul.replaceChildren();
+    if (!items.length) { ul.append(el('li', 'empty', emptyText)); return; }
+    items.forEach((it) => { const li = el('li'); if (it.leak) li.dataset.leak = '1'; li.textContent = it.text; ul.append(li); });
+  }
+  function land(node) {
+    node.classList.remove('land');
+    void node.offsetWidth;
+    node.classList.add('land');
+  }
+  const upper = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+  function drawVerdict(m) {
+    const skipped = m.dns.ok ? '' : ' The lookup test did not run this time, so check again.';
+    const unsure = (m.base || []).some((i) => !i.risk) ? ' This is a best guess from the network name, because the service that tells VPN servers from ordinary providers did not answer.' : '';
+    let word, say, sub;
+    if (m.state === 'protected') {
+      word = 'Hidden';
+      say = "Your provider can't see which sites you visit.";
+      sub = 'It sees one encrypted connection to your VPN. Websites see ' + brief(m.exit) + ', not you.' + skipped + unsure;
+    } else if (m.state === 'leaking') {
+      const what = [];
+      if (m.leaks.includes('dns')) what.push('site name lookups go to an ordinary internet provider');
+      if (m.leaks.includes('ipv6')) what.push('IPv6 traffic goes around the VPN');
+      if (m.leaks.includes('webrtc')) what.push('browser calls reveal an address outside the VPN');
+      if (m.leaks.includes('mixed')) what.push('some services see an address outside the VPN');
+      word = 'Partly visible';
+      say = m.leaks.length === 1 ? 'Your VPN is on, but one thing leaks past it.' : 'Your VPN is on, but ' + m.leaks.length + ' things leak past it.';
+      sub = upper(list(what)) + '. The open ' + (m.leaks.length === 1 ? 'row below shows' : 'rows below show') + ' how to close ' + (m.leaks.length === 1 ? 'it' : 'them') + '.' + skipped + unsure;
+    } else if (m.state === 'open') {
+      word = 'Visible';
+      say = 'Your provider can see which sites you visit.';
+      sub = 'No VPN detected. Websites see your real address at ' + brief(m.home) + '.' + unsure;
+    } else if (m.state === 'unknown') {
+      word = 'Unclear';
+      say = "Couldn't tell whether a VPN is on.";
+      sub = 'Websites see ' + m.main.map((i) => i.ip).join(', ') + ', but no lookup service could say who owns it. Check again in a minute.';
+    } else {
+      word = 'No answer';
+      say = "Couldn't reach the lookup services.";
+      sub = "Check that you're online, then check again. If this page is open inside a preview, open the file in Chrome or Safari instead.";
+    }
+    $('verdict').dataset.state = m.state;
+    $('v-title').textContent = word;
+    $('v-text').textContent = say;
+    $('v-sub').textContent = sub;
+    land($('v-status'));
+  }
+
+  function drawSees(m) {
+    let can = [];
+    let cannot = [];
+    if (m.state === 'open') {
+      can = ['The names of the sites and apps you use, for example youtube.com', 'When you use them and how much data moves', 'Everything on pages that do not use HTTPS'].map((text) => ({ text }));
+      cannot = ['What you read or type on HTTPS pages, which is most of the web', 'Your passwords, messages and card numbers on HTTPS pages', 'Which page you open inside a site'].map((text) => ({ text }));
+    } else if (m.state === 'protected' || m.state === 'leaking') {
+      can = [{ text: "That your device talks to one server, your VPN's, and for how long" }, { text: 'How much data you send and receive' }];
+      const bad = m.dns.resolvers.find((r) => r.role === 'isp');
+      if (m.dns.leak) can.push({ leak: 1, text: 'The names of sites you open, because DNS lookups go to ' + brief(bad) });
+      if (m.v6.leak) can.push({ leak: 1, text: 'Your traffic to sites that support IPv6, which goes around the VPN' });
+      if (m.rtc.leak) can.push({ leak: 1, text: 'Browser calls and video chats, which go around the VPN' });
+      if (m.leaks.includes('mixed')) can.push({ leak: 1, text: 'Traffic to some services, which goes around the VPN' });
+      if (!m.dns.leak && !m.v6.leak && !m.leaks.includes('mixed')) cannot.push({ text: 'Which sites and apps you use' });
+      if (!m.dns.leak && m.dns.ok && m.dns.resolvers.length) cannot.push({ text: 'The site names your device looks up (DNS)' });
+      cannot.push({ text: 'What you read, type, search for or download' });
+    }
+    bullets('can', can, 'Nothing to show until a check succeeds.');
+    bullets('cannot', cannot, 'Nothing to show until a check succeeds.');
+  }
+
+  function drawIp(m) {
+    const d = m.raw;
+    lines('ip-raw', d.http.map((r) => r.name + ': ' + (r.ok ? r.ip : r.err)));
+    if (m.mode === 'offline') {
+      pill('ip-pill', '', 'No answer');
+      facts('ip-facts', []);
+      $('ip-means').textContent = 'None of the five lookup services answered.';
+      return;
+    }
+    const sameNet = uniq(m.main.map((i) => i.asn || i.org || i.ip)).length === 1;
+    const f = m.first;
+    if (sameNet) {
+      facts('ip-facts', [
+        [m.main.length > 1 ? 'Addresses' : 'Address', m.main.map((i) => i.ip), true],
+        ['Network', owner(f)],
+        ['Location', place(f)],
+        ['Type', typeText(f)],
+      ]);
+    } else {
+      facts('ip-facts', [['Addresses', m.main.map(tagged)], ['Type', m.mode === 'mixed' ? 'A mix of VPN and ordinary provider addresses' : typeText(f)]]);
+    }
+    let means;
+    if (m.mode === 'vpn') {
+      pill('ip-pill', 'ok', 'VPN address');
+      means = 'Websites see a VPN server, not you. Your own address and provider stay hidden from the sites you open.';
+      if (m.main.length > 1 && sameNet) means += ' Different sites saw different addresses on the same network, which is normal for a VPN with several exit addresses.';
+      const clock = clockNote(m.exit);
+      if (clock) means += ' ' + clock;
+    } else if (m.mode === 'open') {
+      pill('ip-pill', 'bad', 'Your real address');
+      means = 'Websites see your real address, and your provider carries all your traffic directly. HTTPS still hides what is on a page, but not which sites you use.';
+    } else if (m.mode === 'mixed') {
+      pill('ip-pill', 'warn', 'Mixed');
+      means = 'Some services saw a VPN address and others saw an ordinary provider. Part of your traffic is going around the VPN. Check your VPN app for split tunnelling or routing rules.';
+    } else {
+      pill('ip-pill', 'info', 'Unclear');
+      means = 'The address is known, but no service could say who owns it.';
+    }
+    $('ip-means').textContent = means;
+  }
+
+  function drawDns(m) {
+    const d = m.raw.dns;
+    const raw = d.raw.map((r) => r.name + ': ' + (r.err ? r.err : (r.ips.join(', ') || 'no server reported')));
+    d.ecs.forEach((e) => raw.push('This DNS server passes part of your address (' + e + ') on to the sites it asks.'));
+    lines('dns-raw', raw);
+    const rs = m.dns.resolvers;
+    if (!d.ok || !rs.length) {
+      pill('dns-pill', '', 'No answer');
+      facts('dns-facts', []);
+      $('dns-means').textContent = m.mode === 'offline' ? 'The DNS test services did not answer.' : 'The DNS test services did not answer this time. Run the check again.';
+      return;
+    }
+    facts('dns-facts', [[rs.length > 1 ? 'DNS servers' : 'DNS server', rs.map(tagged)]]);
+    const vpnOn = m.mode === 'vpn' || m.mode === 'mixed';
+    const bad = rs.find((r) => r.role === 'isp');
+    const r0 = rs[0];
+    let means;
+    if (vpnOn && bad) {
+      pill('dns-pill', 'bad', 'DNS leak');
+      means = 'Site names are looked up by ' + brief(bad) + ', an ordinary internet provider, even though your VPN is on. That provider can list every site you open. In your VPN app, turn on its own DNS setting. It is often called VPN DNS, internal DNS or DNS leak protection.';
+    } else if (vpnOn && rs.every((r) => r.role === 'vpn')) {
+      pill('dns-pill', 'ok', 'Inside the VPN');
+      means = "Site names are looked up on your VPN's own network (" + brief(r0) + '). Your provider does not see them.';
+    } else if (vpnOn) {
+      pill('dns-pill', 'ok', 'Not your provider');
+      means = 'Site names are looked up by ' + brief(rs.find((r) => r.role !== 'vpn') || r0) + (rs.some((r) => r.role === 'public') ? ', a public DNS service' : '') + ', not by your internet provider.';
+    } else if (m.mode === 'open') {
+      const own = rs.find((r) => r.role === 'isp' && m.home && r.asn && r.asn === m.home.asn);
+      if (own) {
+        pill('dns-pill', 'bad', "Your provider's DNS");
+        means = "Your provider's own DNS server (" + brief(own) + ') looks up every site name for you, so it has a full list of the sites you open.';
+      } else {
+        pill('dns-pill', 'info', rs.some((r) => r.role === 'public') ? 'Public DNS' : 'Other DNS');
+        means = 'Site names are looked up by ' + brief(r0) + '. Without a VPN your provider can still see which sites you connect to.';
+      }
+    } else {
+      pill('dns-pill', 'info', 'Found');
+      means = 'Site names are looked up by ' + brief(r0) + '.';
+    }
+    $('dns-means').textContent = means;
+  }
+
+  function drawV6(m) {
+    lines('v6-raw', m.raw.v6.raw.map((r) => r.name + ': ' + (r.ip || 'no IPv6 connection')));
+    if (m.mode === 'offline') {
+      pill('v6-pill', '', 'No answer');
+      facts('v6-facts', []);
+      $('v6-means').textContent = 'This test needs a working connection.';
+      return;
+    }
+    const vpnOn = m.mode === 'vpn' || m.mode === 'mixed';
+    if (!m.v6.ip) {
+      pill('v6-pill', vpnOn ? 'ok' : 'info', vpnOn ? 'No IPv6 route' : 'Not in use');
+      facts('v6-facts', [['IPv6 address', 'None']]);
+      $('v6-means').textContent = vpnOn ? 'This connection has no IPv6 route, so nothing can slip past the VPN over IPv6.' : 'This connection does not use IPv6.';
+      return;
+    }
+    const i = m.v6.info;
+    facts('v6-facts', [['IPv6 address', i.ip, true], ['Network', owner(i)], ['Location', place(i)]]);
+    if (m.v6.leak) {
+      pill('v6-pill', 'bad', 'IPv6 leak');
+      $('v6-means').textContent = 'Sites that support IPv6 see an address from ' + brief(i) + ', which looks like your real provider. That traffic travels outside the VPN. Turn on IPv6 protection in your VPN app, or turn IPv6 off for this network.';
+    } else if (vpnOn) {
+      pill('v6-pill', i.kind === 'vpn' ? 'ok' : 'warn', i.kind === 'vpn' ? 'Through the VPN' : 'Unclear');
+      $('v6-means').textContent = i.kind === 'vpn' ? 'IPv6 traffic also leaves from a VPN address.' : 'There is an IPv6 route, but no service could say who owns the address.';
+    } else {
+      pill('v6-pill', 'info', 'In use');
+      $('v6-means').textContent = 'This connection uses IPv6 from ' + brief(i) + '.';
+    }
+  }
+
+  function drawRtc(m) {
+    const d = m.raw.rtc;
+    if (!d.supported) {
+      pill('rtc-pill', 'ok', 'Turned off');
+      facts('rtc-facts', []);
+      lines('rtc-raw', ['This browser has WebRTC turned off.']);
+      $('rtc-means').textContent = 'WebRTC is turned off in this browser, so it cannot reveal an address.';
+      return;
+    }
+    const raw = d.results.map((r) => r.label + ' (' + r.host.split(':')[0] + '): ' + (r.ips.join(', ') || (r.err === 'blocked' ? 'blocked by the browser' : 'no answer')));
+    if (m.rtc.mdns) raw.push('Your local network address is hidden behind a random name.');
+    lines('rtc-raw', raw);
+    const seen = m.rtc.seen;
+    facts('rtc-facts', seen.map((s) => [s.label, [tagged(s.info)]]));
+    const vpnOn = m.mode === 'vpn' || m.mode === 'mixed';
+    const localNote = m.rtc.local ? " Sites can also read this device's address on your home network through WebRTC. It only means something inside that network, so it is not shown here." : '';
+    let means;
+    if (!seen.length) {
+      pill('rtc-pill', m.mode === 'offline' ? '' : 'ok', m.mode === 'offline' ? 'No answer' : 'Nothing exposed');
+      means = m.mode === 'offline' ? 'No call server answered.' : 'No call server could learn a public address through WebRTC.';
+    } else if (m.rtc.leak) {
+      const bad = seen.find((s) => s.info.kind === 'isp');
+      pill('rtc-pill', 'bad', 'WebRTC leak');
+      means = bad.label + ' saw ' + bad.ip + ' at ' + brief(bad.info) + ', which looks like your real address. Sites can read it through WebRTC, and this traffic travels outside the VPN. Turn on leak protection in your VPN app, or limit WebRTC with a browser extension.';
+    } else if (vpnOn) {
+      pill('rtc-pill', 'ok', 'No leak');
+      means = 'Browser calls and video chats reveal only VPN addresses.';
+      const mainNets = new Set(m.main.map((i) => i.asn || i.org));
+      const others = [];
+      seen.forEach((s) => { const k = s.info.asn || s.info.org; if (k && !mainNets.has(k) && !others.some((o) => o.k === k)) others.push({ k, text: s.label + ' saw ' + brief(s.info) }); });
+      if (others.length) means += ' Your VPN sends some destinations out through other servers: ' + others.map((o) => o.text).join('; ') + '.';
+    } else if (m.mode === 'open') {
+      pill('rtc-pill', 'info', 'Same address');
+      means = 'WebRTC shows the same kind of address websites already see.';
+    } else {
+      pill('rtc-pill', 'info', 'Found');
+      means = 'Call servers saw the addresses above.';
+    }
+    $('rtc-means').textContent = means + localNote;
+  }
+
+  function report(m) {
+    const out = ['ISP Visibility Checker, ' + m.at.toLocaleString()];
+    out.push('On the internet: ' + $('v-title').textContent + '. ' + $('v-text').textContent);
+    out.push($('v-sub').textContent);
+    ['ip', 'dns', 'v6', 'rtc'].forEach((k) => {
+      out.push('');
+      out.push($(k + '-name').textContent + ': ' + $(k + '-pill').textContent);
+      $(k + '-facts').querySelectorAll('dt').forEach((dt) => {
+        const dd = dt.nextElementSibling;
+        const vals = dd.children.length ? [...dd.children].map((c) => c.textContent) : [dd.textContent];
+        out.push('  ' + dt.textContent + ': ' + vals.join('; '));
+      });
+      out.push('  ' + $(k + '-means').textContent);
+      (testLines[k + '-raw'] || []).forEach((t) => out.push('    ' + t));
+    });
+    return out.join('\n');
+  }
+
+  /* ---------- router side: works only when this page is opened by app.js ---------- */
+  const TOKEN = ((document.querySelector('meta[name="isp-app-token"]') || {}).content || '').trim();
+  const APP = /^https?:$/.test(location.protocol) && TOKEN.length > 0;
+  const SEV_TONE = { HIGH: 'bad', MEDIUM: 'warn', LOW: 'warn', REVIEW: 'ask', INFO: 'ok' };
+  const SEV_RANK = { HIGH: 4, MEDIUM: 3, LOW: 2, REVIEW: 1, INFO: 0 };
+  const PORT_LABEL = { 22: 'SSH', 23: 'Telnet', 80: 'HTTP', 7547: 'TR-069' };
+  const CHECK_NAME = { upnp: 'UPnP', 'wifi-security': 'Wi-Fi security', 'wifi-channel': 'Wi-Fi channel', dns: 'DNS' };
+  const DNS_CHOICES = [['unknown', "I don't know"], ['encrypted', 'Yes, encrypted'], ['plaintext', 'No, not encrypted']];
+  const MAX_MAPPINGS_SHOWN = 6;
+  const ROUTER_ERRORS = {
+    'no-private-gateway': "The scan stopped safely before checking anything. This computer's default gateway is not a private home-router address, which usually means a VPN is on. Turn the VPN off, then scan again.",
+    busy: 'A scan is already running. Wait for it to finish.',
+    stopped: 'The scan stopped safely and saved nothing. Try again.',
+    timeout: 'The scan took longer than 45 seconds, so the app stopped waiting for it. Try again.',
+    stale: 'This window is out of date. Reload the page to reconnect it to the app.',
+    offline: 'The app is not running, so nothing could be loaded. In Terminal, run node app.js again and use the window it opens.',
+  };
+  const router = { current: null, previous: null, loaded: false, scanning: false, error: null, dns: 'unknown' };
+
+  const when = (iso) => {
+    const d = new Date(iso);
+    return isNaN(d) ? 'an unknown time' : d.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  };
+  const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+  const signed = (n) => (n >= 0 ? '+' : '') + n;
+
+  async function api(path, body) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 60000);
+    try {
+      const headers = { 'X-ISP-Token': TOKEN };
+      if (body) headers['Content-Type'] = 'application/json';
+      const r = await fetch(path, { method: body ? 'POST' : 'GET', headers, body: body ? JSON.stringify(body) : undefined, cache: 'no-store', credentials: 'omit', signal: ctl.signal });
+      if (r.status === 403) return { ok: false, code: 'stale' };
+      return await r.json();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /* Wording follows the project rules: a port that answers is "open on your home
+     network", never "exposed to the internet", and missing evidence is "Unknown". */
+  const portWord = (p) => p.reachable === true ? 'Open on your home network' : p.reachable === false ? 'Closed' : 'Unknown';
+  function upnpWord(u) {
+    if (!u) return 'Unknown';
+    if (u.state === 'detected') return typeof u.mappingCount === 'number' && u.mappingCount > 0 ? 'On, ' + plural(u.mappingCount, 'port mapping', 'port mappings') : 'On, no port mappings';
+    if (u.state === 'refused') return 'Not checked: another device answered';
+    return 'Unknown';
+  }
+  function wifiWord(w) {
+    if (!w || !w.securityState || w.securityState === 'unknown') return 'Unknown';
+    return w.securityState === 'weak' ? w.security + ' (weak)' : String(w.security);
+  }
+  function channelWord(w) {
+    if (!w || w.channel == null) return 'Unknown';
+    if (!Number.isInteger(w.sameChannelCount)) return 'Channel ' + w.channel + ', nearby networks unknown';
+    return 'Channel ' + w.channel + ', ' + (w.sameChannelCount === 0 ? 'no other networks on it' : plural(w.sameChannelCount, 'other network', 'other networks') + ' on it');
+  }
+  const dnsState = (c) => (c && c.dns && c.dns.state) || (c && c.dnsStatus) || 'unknown';
+  const dnsWord = (s) => s === 'encrypted' ? 'Encrypted (you said so)' : s === 'plaintext' ? 'Not encrypted (you said so)' : 'Unknown';
+  function mappingWord(m) {
+    const pub = (m && m.public) || {};
+    const priv = (m && m.private) || {};
+    return String((m && m.protocol) || 'unknown').toUpperCase() + ' port ' + (pub.port == null ? 'unknown' : pub.port) + ' to ' + (priv.host || 'a device') + (priv.port == null ? '' : ':' + priv.port) + (m && m.enabled === false ? ' (off)' : '');
+  }
+  const findingsOf = (report) => Array.isArray(report && report.findings) ? report.findings.filter((f) => f && typeof f === 'object') : [];
+  const isCheck = (id) => /^tcp-\d+$/.test(id) || Object.prototype.hasOwnProperty.call(CHECK_NAME, id);
+  function checkName(id) {
+    const port = /^tcp-(\d+)$/.exec(id);
+    if (port) return 'Port ' + port[1] + (PORT_LABEL[port[1]] ? ' (' + PORT_LABEL[port[1]] + ')' : '');
+    return CHECK_NAME[id];
+  }
+  function checkValue(id, c) {
+    const port = /^tcp-(\d+)$/.exec(id);
+    if (port) {
+      const p = (Array.isArray(c.ports) ? c.ports : []).find((x) => x && String(x.port) === port[1]);
+      return p ? portWord(p) : 'Unknown';
+    }
+    if (id === 'upnp') return upnpWord(c.upnp);
+    if (id === 'wifi-security') return wifiWord(c.wifi);
+    if (id === 'wifi-channel') return channelWord(c.wifi);
+    return dnsWord(dnsState(c));
+  }
+
+  /* The scanner's findings, one entry per check, most urgent first. */
+  function routerChecks(cur) {
+    const c = cur.checks || {};
+    return findingsOf(cur)
+      .filter((f) => isCheck(String(f.id)))
+      .map((f) => ({
+        id: String(f.id),
+        name: checkName(String(f.id)),
+        value: checkValue(String(f.id), c),
+        sev: Object.prototype.hasOwnProperty.call(SEV_TONE, f.severity) ? f.severity : 'REVIEW',
+        message: String(f.message || ''),
+        action: f.action && f.action !== 'No action needed.' ? String(f.action) : '',
+      }))
+      .sort((a, b) => SEV_RANK[b.sev] - SEV_RANK[a.sev]);
+  }
+
+  function routerChanges(prev, cur) {
+    const out = [];
+    const pc = (prev && prev.checks) || {};
+    const cc = (cur && cur.checks) || {};
+    (Array.isArray(cc.ports) ? cc.ports : []).forEach((p) => {
+      const q = (Array.isArray(pc.ports) ? pc.ports : []).find((x) => x && x.port === p.port);
+      if (q && typeof q.reachable === 'boolean' && typeof p.reachable === 'boolean' && q.reachable !== p.reachable) {
+        out.push('Port ' + p.port + ' changed from "' + portWord(q) + '" to "' + portWord(p) + '".');
+      }
+    });
+    [
+      ['UPnP', pc.upnp ? upnpWord(pc.upnp) : null, cc.upnp ? upnpWord(cc.upnp) : null],
+      ['Wi-Fi security', pc.wifi ? wifiWord(pc.wifi) : null, cc.wifi ? wifiWord(cc.wifi) : null],
+      ['Wi-Fi channel', pc.wifi ? channelWord(pc.wifi) : null, cc.wifi ? channelWord(cc.wifi) : null],
+      ['DNS', dnsWord(dnsState(pc)), dnsWord(dnsState(cc))],
+    ].forEach(([name, before, now]) => {
+      if (before != null && now != null && before !== now) out.push(name + ' changed from "' + before + '" to "' + now + '".');
+    });
+    return out;
+  }
+
+  function routerMsg(text, tone) {
+    const m = $('r-msg');
+    m.hidden = !text;
+    m.textContent = text || '';
+    m.dataset.tone = tone || '';
+  }
+  function publishRouter() {
+    const s = router.current && router.current.score;
+    window.ispRouter = { mode: APP ? 'app' : 'file', loaded: router.loaded, scanning: router.scanning, error: router.error, score: s && typeof s.provisional === 'number' ? s.provisional : null };
+  }
+  function routerHint(mode) {
+    $('r-hint').hidden = !(APP && (mode === 'vpn' || mode === 'mixed'));
+  }
+
+  function rowEl(tone, name, value, action) {
+    const d = el('details', 'row');
+    d.dataset.tone = tone || '';
+    const s = el('summary');
+    const ico = el('span', 'ico');
+    const chev = el('span', 'chev');
+    ico.setAttribute('aria-hidden', 'true');
+    chev.setAttribute('aria-hidden', 'true');
+    s.append(ico, el('span', 'name', name), el('span', 'val', value), chev);
+    if (action) s.append(el('span', 'do', action));
+    const more = el('div', 'more');
+    d.append(s, more);
+    return { d, more };
+  }
+
+  function dnsControl() {
+    const wrap = el('label', 'field', 'Is your DNS encrypted?');
+    const sel = el('select');
+    sel.id = 'r-dns';
+    DNS_CHOICES.forEach(([value, text]) => {
+      const o = el('option', '', text);
+      o.value = value;
+      sel.append(o);
+    });
+    sel.value = router.dns;
+    sel.disabled = router.scanning;
+    sel.addEventListener('change', () => { router.dns = sel.value; });
+    wrap.append(sel, el('span', 'q', 'Your answer is used the next time you scan.'));
+    return wrap;
+  }
+
+  function checkRow(k, upnp) {
+    const ask = APP && k.id === 'dns' && k.sev === 'REVIEW';
+    const action = ask ? 'Check the DNS settings in your browser or system, then answer below and scan again.' : k.action;
+    const { d, more } = rowEl(SEV_TONE[k.sev], k.name, k.value, action);
+    d.dataset.check = k.id;
+    d.open = ask;
+    if (k.message) more.append(el('p', '', k.message));
+    if (k.id === 'upnp' && upnp && Array.isArray(upnp.mappings) && upnp.mappings.length) {
+      const ul = el('ul', 'raw');
+      upnp.mappings.slice(0, MAX_MAPPINGS_SHOWN).forEach((m) => ul.append(el('li', '', mappingWord(m))));
+      if (upnp.mappings.length > MAX_MAPPINGS_SHOWN) ul.append(el('li', '', 'and ' + (upnp.mappings.length - MAX_MAPPINGS_SHOWN) + ' more'));
+      more.append(ul);
+    }
+    if (APP && k.id === 'dns') more.append(dnsControl());
+    return d;
+  }
+
+  function setRouterWord(text, score) {
+    const t = $('r-title');
+    t.replaceChildren();
+    if (score == null) { t.textContent = text; return; }
+    const n = el('span', '', String(score));
+    n.id = 'r-score';
+    t.append(n, el('small', '', '/100'));
+  }
+
+  function drawRouter() {
+    const cur = router.current;
+    const prev = router.previous;
+    const rows = $('r-rows');
+    const foot = $('r-foot');
+    rows.replaceChildren();
+    rows.hidden = !cur;
+    foot.hidden = !cur;
+    if (!cur) {
+      $('r-hero').dataset.state = '';
+      setRouterWord('Not scanned');
+      $('r-text').textContent = 'Turn your VPN off, then scan your router.';
+      $('r-sub').textContent = 'The scan checks only your own router, from inside your network. It takes up to 20 seconds.';
+      return;
+    }
+
+    const score = cur.score || {};
+    const has = typeof score.provisional === 'number';
+    const cov = typeof score.coveragePercent === 'number' ? Math.max(0, Math.min(100, Math.round(score.coveragePercent))) : null;
+    const checks = routerChecks(cur);
+    const todo = checks.filter((k) => k.sev !== 'INFO');
+    const dnsFine = checks.find((k) => k.id === 'dns' && k.sev === 'INFO');
+    const fine = checks.filter((k) => k.sev === 'INFO' && k.id !== 'dns');
+    const cmp = cur.comparison;
+    const hasCmp = !!cmp && typeof cmp.previousScore === 'number' && typeof cmp.delta === 'number';
+
+    $('r-hero').dataset.state = 'scored';
+    setRouterWord('Unknown', has ? score.provisional : null);
+    $('r-text').textContent = todo.length ? plural(todo.length, 'thing', 'things') + ' to look at on your router.' : 'Nothing on your router needs a change.';
+    $('r-sub').textContent = 'Scanned ' + when(cur.generatedAt) + ', from inside your network.'
+      + (has ? ' Provisional score' + (cov == null ? '' : ', from ' + cov + '% of the checks') + '.' : ' This report has no score.')
+      + (hasCmp ? ' Before: ' + cmp.previousScore + ' (' + signed(cmp.delta) + ').' : '');
+
+    todo.forEach((k) => rows.append(checkRow(k, (cur.checks || {}).upnp)));
+    if (dnsFine) rows.append(checkRow(dnsFine));
+
+    if (fine.length) {
+      const { d, more } = rowEl('ok', plural(fine.length, 'check is', 'checks are') + ' fine', '');
+      d.id = 'r-fine';
+      const ul = el('ul', 'mini');
+      fine.forEach((k) => {
+        const li = el('li');
+        li.append(el('span', '', k.name), el('span', '', k.value));
+        ul.append(li);
+      });
+      more.append(ul);
+      rows.append(d);
+    }
+
+    if (prev) {
+      const diff = routerChanges(prev, cur);
+      const value = hasCmp ? cmp.previousScore + ' to ' + (typeof cmp.currentScore === 'number' ? cmp.currentScore : score.provisional) + ' (' + signed(cmp.delta) + ')' : diff.length ? plural(diff.length, 'change', 'changes') : 'No change';
+      const { d, more } = rowEl('info', 'Since the previous scan', value);
+      d.id = 'r-change';
+      const ul = el('ul', 'mini');
+      const items = ['Compared with the scan from ' + when(prev.generatedAt) + '.'];
+      if (hasCmp) items.push('Score: ' + cmp.previousScore + ' before, ' + (typeof cmp.currentScore === 'number' ? cmp.currentScore : score.provisional) + ' now (' + signed(cmp.delta) + ').');
+      else items.push('The previous scan has no score to compare with.');
+      if (diff.length) diff.forEach((t) => items.push(t));
+      else items.push('No check changed between the two scans.');
+      items.forEach((t) => ul.append(el('li', '', t)));
+      more.append(ul);
+      rows.append(d);
+    }
+
+    foot.textContent = 'Only your own router was checked, from inside your network. Whether the internet can reach it was not tested. The score is a learning guide, not a certificate.';
+  }
+
+  function routerText() {
+    const cur = router.current;
+    if (!cur) return '';
+    const s = cur.score || {};
+    const out = ['At home: router scan from ' + when(cur.generatedAt)];
+    out.push('  Provisional score: ' + (typeof s.provisional === 'number' ? s.provisional + '/100' : 'Unknown') + (typeof s.coveragePercent === 'number' ? ', from ' + s.coveragePercent + '% of the checks' : ''));
+    routerChecks(cur).forEach((k) => {
+      out.push('  ' + k.name + ': ' + k.value);
+      if (k.action) out.push('    To do: ' + k.action);
+    });
+    return out.join('\n');
+  }
+
+  async function scanRouter() {
+    if (router.scanning || !APP) return;
+    router.scanning = true;
+    publishRouter();
+    const b = $('r-scan');
+    b.disabled = true;
+    b.textContent = 'Scanning';
+    const sel = $('r-dns');
+    if (sel) sel.disabled = true;
+    routerMsg('Scanning your router. It takes up to 20 seconds.', '');
+    let res;
+    try { res = await api('/api/scan', { dns: router.dns }); } catch (e) { res = { ok: false, code: 'offline' }; }
+    router.scanning = false;
+    if (res && res.ok) {
+      router.current = res.current || null;
+      router.previous = res.previous || null;
+      router.error = null;
+      drawRouter();
+      land($('r-status'));
+      routerMsg('Scan finished at ' + new Date().toLocaleTimeString() + '.', 'ok');
+    } else {
+      router.error = (res && res.code) || 'stopped';
+      routerMsg(ROUTER_ERRORS[router.error] || ROUTER_ERRORS.stopped, 'warn');
+      if (router.error === 'no-private-gateway') $('r-hint').hidden = true;
+      const again = $('r-dns');
+      if (again) again.disabled = false;
+    }
+    b.disabled = false;
+    b.textContent = 'Scan router';
+    publishRouter();
+  }
+
+  function shellQuote(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
+
+  async function initRouter() {
+    if (!APP) {
+      if (location.protocol === 'file:') {
+        try {
+          const dir = decodeURIComponent(location.pathname).replace(/\/[^/]*$/, '');
+          if (dir.startsWith('/') && dir.length > 1) $('r-cmd').textContent = 'cd ' + shellQuote(dir) + ' && node app.js';
+        } catch (e) { /* keep the default command */ }
+      }
+      publishRouter();
+      return;
+    }
+    $('r-start').hidden = true;
+    $('r-scan').hidden = false;
+    setRouterWord('Loading');
+    $('r-text').textContent = 'Loading your last router scan.';
+    $('r-sub').textContent = '';
+    try {
+      const res = await api('/api/report');
+      if (res && res.ok) {
+        router.current = res.current || null;
+        router.previous = res.previous || null;
+        const stated = dnsState((router.current || {}).checks);
+        if (DNS_CHOICES.some(([value]) => value === stated)) router.dns = stated;
+      } else {
+        router.error = (res && res.code) || 'offline';
+      }
+    } catch (e) {
+      router.error = 'offline';
+    }
+    router.loaded = true;
+    drawRouter();
+    if (router.error) routerMsg(ROUTER_ERRORS[router.error] || ROUTER_ERRORS.offline, 'warn');
+    publishRouter();
+  }
+
+  /* ---------- run ---------- */
+  let lastReport = '';
+  let running = false;
+
+  function showRunning() {
+    $('verdict').dataset.state = 'running';
+    $('v-title').textContent = 'Checking';
+    $('v-text').textContent = 'Running four tests from this browser.';
+    $('v-sub').textContent = 'It takes about five seconds.';
+    bullets('can', [], 'Waiting for the check to finish.');
+    bullets('cannot', [], 'Waiting for the check to finish.');
+    ['ip', 'dns', 'v6', 'rtc'].forEach((k) => {
+      pill(k + '-pill', '', 'Checking');
+      facts(k + '-facts', []);
+      lines(k + '-raw', []);
+      $(k + '-means').textContent = '';
+    });
+  }
+
+  async function run() {
+    if (running) return;
+    running = true;
+    $('run').disabled = true;
+    $('run').textContent = 'Checking';
+    known = new Map();
+    pending = new Map();
+    showRunning();
+    try {
+      const [http, dns, v6, rtc] = await Promise.all([testHttp(), testDns(), testV6(), testRtc()]);
+      const need = new Set();
+      http.forEach((r) => { if (r.ok) need.add(r.ip); });
+      dns.resolvers.forEach((ip) => need.add(ip));
+      if (v6.ip) need.add(v6.ip);
+      rtc.results.forEach((r) => r.ips.forEach((ip) => need.add(ip)));
+      await Promise.all([...need].map(describe));
+      const m = analyse({ http, dns, v6, rtc });
+      drawVerdict(m);
+      drawSees(m);
+      drawIp(m);
+      drawDns(m);
+      drawV6(m);
+      drawRtc(m);
+      routerHint(m.mode);
+      lastReport = report(m);
+      window.ispCheck = { state: m.state, mode: m.mode, leaks: m.leaks, report: lastReport };
+      $('stamp').textContent = 'Checked at ' + m.at.toLocaleTimeString() + '.';
+    } catch (e) {
+      $('verdict').dataset.state = 'offline';
+      $('v-title').textContent = 'Error';
+      $('v-text').textContent = 'The check stopped unexpectedly.';
+      $('v-sub').textContent = 'Check again. If it keeps stopping, try another browser.';
+      window.ispCheck = { state: 'error', error: String(e && e.stack || e) };
+    } finally {
+      running = false;
+      $('run').disabled = false;
+      $('run').textContent = 'Check again';
+    }
+  }
+
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      try {
+        const ta = el('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.append(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        ta.remove();
+        return ok;
+      } catch (e2) {
+        return false;
+      }
+    }
+  }
+  function flash(button, text, restore) {
+    button.textContent = text;
+    setTimeout(() => { button.textContent = restore; }, 1600);
+  }
+
+  $('run').addEventListener('click', run);
+  $('copy').addEventListener('click', async () => {
+    const text = [lastReport, routerText()].filter(Boolean).join('\n\n');
+    if (!text) { flash($('copy'), 'Nothing to copy yet', 'Copy report'); return; }
+    flash($('copy'), (await copyText(text)) ? 'Copied' : 'Copy failed', 'Copy report');
+  });
+  $('r-copy').addEventListener('click', async () => {
+    flash($('r-copy'), (await copyText($('r-cmd').textContent)) ? 'Copied' : 'Copy failed', 'Copy command');
+  });
+  $('r-scan').addEventListener('click', scanRouter);
+
+  initRouter();
+  run();
+})();
+</script>
+</body>
+</html>
