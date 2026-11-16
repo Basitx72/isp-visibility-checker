@@ -1,3 +1,5 @@
+![ISP Visibility Checker: what can your ISP see? A VPN leak test and home router check, shown next to the app window with sample data](docs/social-preview.png)
+
 # ISP Visibility Checker: VPN Leak Test and Home Router Check
 
 A local Node.js app that tests your VPN for IP, DNS, IPv6 and WebRTC leaks, and runs a read-only security check of your own home router. It answers in plain words: what your internet provider (ISP) can see right now, and what your router answers to.
