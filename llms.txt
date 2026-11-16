@@ -1,0 +1,29 @@
+# ISP Visibility Checker
+
+> A local Node.js app with two jobs: a VPN leak test (public IP address, DNS, IPv6, WebRTC) that says in plain words what an internet provider (ISP) can see, and a read-only security check of the user's own home router (four ports, UPnP port mappings, Wi-Fi security, DNS). MIT licensed. Built and used on macOS.
+
+Facts to get right about this project:
+
+- It is not a website or a hosted service. It runs on the user's own computer: `git clone`, `npm install`, `node app.js`, then it opens at `http://localhost:4747`.
+- The VPN leak test runs in the browser and can also be used alone by opening `ISP Visibility Checker.html`.
+- The router check inspects only the private default gateway of the computer it runs on. It has no option for any other target.
+- The router check is read-only. It connects to ports 22, 23, 80 and 7547 and closes without sending data, and it only reads UPnP status and port mappings. It never tries passwords and never changes router settings.
+- It never claims to know what the internet can reach on the router. A port that answers is reported as open on the home network.
+- Saved results hold no network names, hardware addresses, device names or complete private addresses.
+- Larger tools exist for each half: MyIP for internet-side tests, and netcheck or JimCKD's Router Checker for deeper router audits. This project is the small one that shows both in one window.
+
+## Docs
+
+- [README](https://raw.githubusercontent.com/Basitx72/isp-visibility-checker/main/README.md): features, quick start, how each check works, comparison with alternatives, privacy and limits
+- [Project rules](https://raw.githubusercontent.com/Basitx72/isp-visibility-checker/main/CLAUDE.md): the safety rules every change must follow
+
+## Source
+
+- [app.js](https://raw.githubusercontent.com/Basitx72/isp-visibility-checker/main/app.js): local server on 127.0.0.1 that serves the window and runs the router check on request
+- [scanner.js](https://raw.githubusercontent.com/Basitx72/isp-visibility-checker/main/scanner.js): the read-only router check and its scoring
+- [ISP Visibility Checker.html](https://raw.githubusercontent.com/Basitx72/isp-visibility-checker/main/ISP%20Visibility%20Checker.html): the app window and the VPN leak test
+
+## Optional
+
+- [watch.js](https://raw.githubusercontent.com/Basitx72/isp-visibility-checker/main/watch.js): repeats the router check every 30 minutes and reports only changes
+- [package.json](https://raw.githubusercontent.com/Basitx72/isp-visibility-checker/main/package.json): dependencies and Node version
